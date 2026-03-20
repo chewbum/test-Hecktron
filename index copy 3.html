@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Insecure postMessage without Origin Validation (VULNERABLE)</title>
+  <style>
+    body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; margin: 2rem; line-height: 1.5; }
+    .card { border: 1px solid #e5e7eb; border-radius: 14px; padding: 1rem 1.25rem; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+    code, pre { background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 8px; padding: .25rem .5rem; }
+    pre { padding: .75rem 1rem; overflow: auto; }
+    .danger { color: #b91c1c; font-weight: 700; }
+    #output { min-height: 48px; border: 1px dashed #e5e7eb; border-radius: 10px; padding: .75rem; background: #ffffff; }
+  </style>
+</head>
+<body>
+  <h1>Insecure <code>postMessage</code> without Origin Validation <span class="danger">(VULNERABLE)</span></h1>
+  <p>This page intentionally demonstrates an insecure <code>message</code> event listener that <strong>does not validate <code>event.origin</code></strong> and blindly injects received content into the DOM.</p>
+
+  <div class="card" style="margin: 1rem 0;">
+    <p><strong>Status</strong></p>
+    <p id="origin">Last message origin: <em>(none)</em></p>
+    <div id="output">No message yet.</div>
+  </div>
+
+  <script>
+    // VULNERABLE IMPLEMENTATION — DO NOT USE IN PRODUCTION
+    // This listener accepts messages from ANY origin and injects the data into the DOM without sanitization.
+    window.addEventListener('message', (event) => {
+      // Shows the origin but FAILS to validate it (critical bug)
+      document.getElementById('origin').textContent = 'Last message origin: ' + event.origin;
+
+      // Dangerous sink: direct innerHTML assignment of untrusted data
+      const incoming = typeof event.data === 'string' ? event.data : JSON.stringify(event.data);
+      document.getElementById('output').innerHTML = incoming;
+    });
+  </script>
+
+  <hr />
+  <h2>How to reproduce the issue</h2>
+  <ol>
+    <li>Open <em>this</em> file in your browser (served via any origin).</li>
+    <li>In the browser console, open a different-origin tab (e.g., <code>example.com</code>):
+      <pre>window.open('https://example.com', 'attacker');</pre>
+    </li>
+    <li>Switch to the console of the newly opened tab and run:
+      <pre>window.opener.postMessage('&lt;img src=x onerror=alert(\'Injected via \n\' + location.origin + \n\' — NO ORIGIN CHECK!\')&gt;', '*');</pre>
+      You should see an alert on the vulnerable page and the DOM content updated.
+    </li>
+  </ol>
+
+  <!--
+    SECURE PATTERN (for reference only — intentionally not active):
+
+    window.addEventListener('message', (event) => {
+      const allowed = new Set(['https://trusted.example']);
+      if (!allowed.has(event.origin)) return; // Validate origin strictly
+
+      // Optionally, validate event.source as well and use structured, expected message shapes
+      // if (event.data && event.data.type === 'expected') { ... }
+
+      // Avoid dangerous sinks like innerHTML; prefer textContent or safe rendering
+    });
+  -->
+</body>
+</html>
