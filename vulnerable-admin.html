@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Admin Panel</title>
+  <!-- FINDING: No Content-Security-Policy header/meta tag — XSS fully exploitable -->
+  <!-- FINDING: No X-Frame-Options — page is embeddable (clickjacking) -->
+</head>
+<body>
+
+  <!-- FINDING: Sensitive internal info exposed in HTML comments -->
+  <!--
+    Internal admin panel v2.3
+    DB host: prod-db.internal:5432
+    DB user: postgres / Postgres@2024!
+    API key: sk_live_51ABCDEFGHIJKLMNOPabcde
+    Last deployed by: john.doe@company.com on 2024-11-01
+  -->
+
+  <h1>Admin Panel</h1>
+
+  <!-- FINDING: CSRF — state-changing form has no CSRF token -->
+  <form action="/admin/delete-user" method="POST">
+    <label>User ID: <input type="text" name="userId"></label>
+    <button type="submit">Delete User</button>
+  </form>
+
+  <!-- FINDING: CSRF — another state-changing form, no token -->
+  <form action="/admin/promote-user" method="POST">
+    <input type="hidden" name="role" value="admin">
+    <label>Username: <input type="text" name="username"></label>
+    <button type="submit">Promote to Admin</button>
+  </form>
+
+  <script>
+    // FINDING: Sensitive data embedded in JS global (visible to any script on page)
+    window.__CONFIG__ = {
+      apiKey: "sk_live_51ABCDEFGHIJKLMNOPabcdefghijklmnopqrstuvwxyz012345",
+      adminToken: "hardcoded-admin-token-abc123",
+      dbPassword: "Postgres@2024!",
+      internalApiBase: "http://internal-api.svc.cluster.local",
+    };
+
+    // FINDING: XSS via innerHTML from URL hash
+    const msg = decodeURIComponent(location.hash.slice(1));
+    document.getElementById("flash")?.insertAdjacentHTML("afterbegin", msg);
+
+    // FINDING: XSS via document.write with query parameter
+    const username = new URLSearchParams(location.search).get("user");
+    document.write("<p>Welcome, " + username + "</p>");
+
+    // FINDING: Prototype pollution — merging user-controlled object without key check
+    function merge(target, source) {
+      for (const key in source) {
+        // No check for __proto__, constructor, prototype
+        target[key] = source[key];
+      }
+    }
+
+    // FINDING: postMessage handler with no origin check (same as index.html pattern)
+    window.addEventListener("message", function (e) {
+      // No e.origin validation
+      document.getElementById("output").innerHTML = e.data;
+    });
+
+    // FINDING: eval() with user-controlled input
+    const expr = new URLSearchParams(location.search).get("expr");
+    if (expr) eval(expr);
+
+    // FINDING: setTimeout / setInterval with string argument (same risk as eval)
+    const delay = new URLSearchParams(location.search).get("delay") || "1000";
+    setTimeout("console.log('tick')", parseInt(delay));
+
+    // FINDING: localStorage used to store sensitive token (accessible to any JS)
+    localStorage.setItem("adminToken", window.__CONFIG__.adminToken);
+    localStorage.setItem("apiKey", window.__CONFIG__.apiKey);
+
+    // FINDING: Sensitive data in sessionStorage
+    sessionStorage.setItem("db_password", window.__CONFIG__.dbPassword);
+
+    // FINDING: Insecure password change — old password not required
+    async function changePassword(newPassword) {
+      await fetch("/admin/change-password", {
+        method: "POST",
+        body: JSON.stringify({ newPassword }),
+        // No CSRF token, no old-password verification
+      });
+    }
+  </script>
+
+  <div id="flash"></div>
+  <div id="output">Output will appear here.</div>
+
+  <!-- FINDING: Mixed content — HTTP resource loaded on an HTTPS page -->
+  <script src="http://cdn.example.com/jquery.min.js"></script>
+
+  <!-- FINDING: Third-party script with no Subresource Integrity (SRI) check -->
+  <script src="https://cdn.example.com/analytics.js"></script>
+
+  <!-- FINDING: Autocomplete not disabled on sensitive fields -->
+  <form action="/admin/login" method="POST">
+    <input type="text" name="username" autocomplete="username">
+    <input type="password" name="password">  <!-- autocomplete="off" missing -->
+    <button type="submit">Login</button>
+  </form>
+
+</body>
+</html>
